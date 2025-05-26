@@ -23,6 +23,9 @@ class TrebleClefTrainer {
         this.canvasInitialized = false;
         this.isStarted = false;
         
+        this.ghostNote = null;  // Add this line
+        this.ghostNoteOpacity = 0;  // Add this line
+        
         this.initializeElements();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
@@ -238,6 +241,10 @@ class TrebleClefTrainer {
                 this.statusLabel.style.color = '#9696ff';
             }, 1000); // Reduced delay
         } else {
+            // Show ghost note for wrong answer
+            this.ghostNote = detectedNote;
+            this.ghostNoteOpacity = 0.6;  // Start fade
+            
             this.adaptiveManager.recordAttempt(this.currentNote, false);
             this.wrongAnswers.set(this.currentNote, (this.wrongAnswers.get(this.currentNote) || 0) + 1);
             
@@ -597,6 +604,40 @@ class TrebleClefTrainer {
         this.ctx.stroke();
         
         this.drawLedgerLines(noteX, noteY, noteSize);
+        
+        // Draw ghost note if exists
+        if (this.ghostNote && this.ghostNoteOpacity > 0) {
+            const ghostX = Math.round(this.canvas.width * 0.45); // Left of main note
+            const ghostY = Math.round(this.getNoteYPosition(this.ghostNote));
+            
+            // Draw ghost note with transparency
+            this.ctx.globalAlpha = this.ghostNoteOpacity;
+            this.ctx.fillStyle = '#ff6464';  // Red tint
+            this.ctx.beginPath();
+            this.ctx.ellipse(ghostX, ghostY, noteSize * 0.8, noteSize * 0.8 * 0.7, 0, 0, 2 * Math.PI);
+            this.ctx.fill();
+            
+            // Draw ghost stem
+            this.ctx.strokeStyle = '#ff6464';
+            this.ctx.lineWidth = 3;
+            this.ctx.beginPath();
+            if (ghostY > this.canvas.height / 2) {
+                this.ctx.moveTo(ghostX + noteSize * 0.7, ghostY);
+                this.ctx.lineTo(ghostX + noteSize * 0.7, ghostY - stemLength * 0.8);
+            } else {
+                this.ctx.moveTo(ghostX - noteSize * 0.7, ghostY);
+                this.ctx.lineTo(ghostX - noteSize * 0.7, ghostY + stemLength * 0.8);
+            }
+            this.ctx.stroke();
+            
+            // Draw ghost ledger lines if needed
+            this.drawLedgerLines(ghostX, ghostY, noteSize * 0.8);
+            
+            this.ctx.globalAlpha = 1.0;  // Reset transparency
+            
+            // Fade out ghost note
+            this.ghostNoteOpacity = Math.max(0, this.ghostNoteOpacity - 0.002);
+        }
     }
 
     getNoteYPosition(noteName) {

@@ -8,6 +8,8 @@ class AudioNoteDetector {
         this.isListening = false;
         this.lastDetectedNote = null;
         this.lastDetectionTime = 0;
+        this.consecutiveDetections = new Map(); // Add detection counter
+        this.requiredDetections = 2; // Number of consecutive detections needed
     }
 
     setNoteListener(callback) {
@@ -60,42 +62,87 @@ class AudioNoteDetector {
         
         this.analyser.getByteFrequencyData(this.dataArray);
         
-        // Find peak frequency
-        let maxAmplitude = 0;
-        let peakIndex = 0;
+        // Find peak frequencies - look for multiple peaks
+        const peaks = this.findPeakFrequencies();
         
-        // Focus on musical frequency range (80Hz - 1200Hz)
-        const minIndex = Math.floor(80 * this.analyser.fftSize / this.audioContext.sampleRate);
-        const maxIndex = Math.floor(1200 * this.analyser.fftSize / this.audioContext.sampleRate);
-        
-        for (let i = minIndex; i < maxIndex && i < this.dataArray.length; i++) {
-            if (this.dataArray[i] > maxAmplitude) {
-                maxAmplitude = this.dataArray[i];
-                peakIndex = i;
-            }
-        }
-        
-        // Check if amplitude is strong enough
-        if (maxAmplitude > 100) { // Threshold for detection
-            const frequency = peakIndex * this.audioContext.sampleRate / this.analyser.fftSize;
+        // Process each peak found
+        for (const {frequency, amplitude} of peaks) {
             const note = this.frequencyToNote(frequency);
             
-            if (note && note !== this.lastDetectedNote) {
-                const now = Date.now();
-                if (now - this.lastDetectionTime > 500) { // Debounce
-                    console.log(`🎵 Note detected: ${note} (${frequency.toFixed(1)} Hz, amplitude: ${maxAmplitude})`);
-                    this.lastDetectedNote = note;
-                    this.lastDetectionTime = now;
-                    
-                    if (this.noteListener) {
-                        this.noteListener(note);
+            if (note) {
+                // Increment consecutive detection counter
+                this.consecutiveDetections.set(note, (this.consecutiveDetections.get(note) || 0) + 1);
+                
+                // Check if we have enough consecutive detections
+                if (this.consecutiveDetections.get(note) >= this.requiredDetections) {
+                    const now = Date.now();
+                    if (now - this.lastDetectionTime > 200) { // Reduced debounce time
+                        console.log(`🎵 Note detected: ${note} (${frequency.toFixed(1)} Hz)`);
+                        this.lastDetectedNote = note;
+                        this.lastDetectionTime = now;
+                        
+                        if (this.noteListener) {
+                            this.noteListener(note);
+                        }
                     }
                 }
             }
         }
         
-        // Continue processing
-        setTimeout(() => this.processAudio(), 50);
+        // Clear counters for notes not detected in this frame
+        for (const [note, count] of this.consecutiveDetections) {
+            if (!peaks.some(p => this.frequencyToNote(p.frequency) === note)) {
+                this.consecutiveDetections.delete(note);
+            }
+        }
+        
+        requestAnimationFrame(() => this.processAudio());
+    }
+
+    findPeakFrequencies() {
+        const peaks = [];
+        const minFreq = 220; // A3
+        const maxFreq = 880; // A5
+        const minIndex = Math.floor(minFreq * this.analyser.fftSize / this.audioContext.sampleRate);
+        const maxIndex = Math.floor(maxFreq * this.analyser.fftSize / this.audioContext.sampleRate);
+        
+        for (let i = minIndex; i < maxIndex; i++) {
+            const freq = i * this.audioContext.sampleRate / this.analyser.fftSize;
+            const amp = this.dataArray[i];
+            
+            // Dynamic threshold based on frequency range
+            const threshold = freq < 300 ? 60 : freq > 700 ? 65 : 70;
+            
+            if (amp > threshold && 
+                (i === 0 || amp > this.dataArray[i-1]) && 
+                (i === this.dataArray.length-1 || amp > this.dataArray[i+1])) {
+                peaks.push({
+                    frequency: freq,
+                    amplitude: amp
+                });
+            }
+        }
+        
+        return peaks.sort((a, b) => b.amplitude - a.amplitude).slice(0, 3);
+    }
+
+    getFrequencyWeight(frequency) {
+        // Boost sensitivity for extreme frequencies
+        if (frequency < 200) {
+            return 1.4; // Boost bass frequencies
+        } else if (frequency > 800) {
+            return 1.3; // Boost high frequencies
+        }
+        return 1.0;
+    }
+
+    getAdaptiveThreshold(peakIndex) {
+        // Lower threshold for extreme frequencies
+        const frequency = peakIndex * this.audioContext.sampleRate / this.analyser.fftSize;
+        if (frequency < 200 || frequency > 800) {
+            return 70; // More sensitive for extreme frequencies
+        }
+        return 80; // Normal threshold for mid-range
     }
 
     frequencyToNote(frequency) {
@@ -116,13 +163,14 @@ class AudioNoteDetector {
             'A5': 880.00
         };
 
-        // Find closest note (with tolerance)
+        // Use dynamic tolerance based on frequency
         let closestNote = null;
         let smallestDifference = Infinity;
 
         for (const [note, noteFreq] of Object.entries(noteFrequencies)) {
             const difference = Math.abs(frequency - noteFreq);
-            const tolerance = noteFreq * 0.06; // 6% tolerance
+            // Wider tolerance for lower notes (8%) and higher notes (7%)
+            const tolerance = noteFreq * (noteFreq < 300 ? 0.05 : noteFreq > 600 ? 0.04 : 0.045);
             
             if (difference < tolerance && difference < smallestDifference) {
                 smallestDifference = difference;
