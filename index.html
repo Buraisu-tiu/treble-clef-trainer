@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎵 Treble Clef Trainer</title>
+    <title>🎵 Sheet Music Trainer</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#191922">
@@ -12,7 +12,15 @@
     <!-- Main Menu -->
     <div id="mainMenu" class="menu-container">
         <div class="menu-panel">
-            <h1>🎹 Treble Clef Trainer</h1>
+            <h1>🎵 Sheet Music Trainer</h1>
+            
+            <div class="setting-group">
+                <label>Select Clef</label>
+                <select id="clefMode" class="styled-select">
+                    <option value="treble">Treble Clef (G Clef)</option>
+                    <option value="bass">Bass Clef (F Clef)</option>
+                </select>
+            </div>
             
             <div class="setting-group">
                 <label>Practice Mode</label>
@@ -64,6 +72,10 @@
                 </label>
             </div>
             
+            <div class="setting-group">
+                <button id="toggleFullscreen" class="modern-button secondary">Toggle Fullscreen</button>
+            </div>
+            
             <div class="button-group">
                 <button id="saveSettings" class="modern-button primary">Save</button>
                 <button id="cancelSettings" class="modern-button secondary">Cancel</button>
@@ -97,6 +109,7 @@
                 <button id="micTestBtn" class="control-button">🎤 Test Mic</button>
                 <button id="statsBtn" class="control-button">📊 Stats</button>
                 <button id="menuBtn" class="control-button">⚙️ Menu</button>
+                <button id="reinitCanvasBtn" class="control-button">🔄 Fix Display</button>
             </div>
         </div>
     </div>

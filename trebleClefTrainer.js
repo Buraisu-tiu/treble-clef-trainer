@@ -20,6 +20,9 @@ class TrebleClefTrainer {
         this.backgroundFlash = 0.0;
         this.noteShakeOffset = 0;
         
+        this.canvasInitialized = false;
+        this.isStarted = false;
+        
         this.initializeElements();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
@@ -27,76 +30,65 @@ class TrebleClefTrainer {
     }
 
     initializeElements() {
-        // Menu elements
+        // Validate and get critical elements first
         this.mainMenu = document.getElementById('mainMenu');
         this.settingsMenu = document.getElementById('settingsMenu');
         this.mainApp = document.getElementById('mainApp');
-        this.statsModal = document.getElementById('statsModal');
-        
-        // Controls
+        this.clefModeSelect = document.getElementById('clefMode');
         this.practiceModeSelect = document.getElementById('practiceMode');
         this.adaptiveCheckbox = document.getElementById('adaptiveDifficulty');
         this.startButton = document.getElementById('startButton');
         this.settingsButton = document.getElementById('settingsButton');
-        
-        // App elements
         this.canvas = document.getElementById('staffCanvas');
-        this.ctx = this.canvas.getContext('2d');
         this.statusLabel = document.getElementById('statusLabel');
         this.scoreLabel = document.getElementById('scoreLabel');
         this.hintDisplay = document.getElementById('hintDisplay');
+
+        // Direct event binding for start button
+        if (this.startButton) {
+            this.startButton.onclick = (e) => {
+                e.preventDefault();
+                this.startPractice();
+            };
+        }
         
-        this.setupCanvas();
+        // Initialize canvas without recursion
+        this.ctx = this.canvas.getContext('2d');
+        this.setCanvasSize();
         
-        // Force immediate initial draw
+        // Load bass clef image
+        this.bassClefImage = new Image();
+        this.bassClefImage.src = 'bassclef.png';
+
+        // Force initial draw
         this.drawStaff();
         this.drawTrebleClef();
     }
 
-    setupCanvas() {
+    // New method to handle canvas sizing without recursion
+    setCanvasSize() {
+        if (!this.ctx || !this.canvas) return;
+        
         const container = this.canvas.parentElement;
-        const resize = () => {
-            // Get container size
-            const rect = container.getBoundingClientRect();
-            const dpi = window.devicePixelRatio || 1;
-            
-            // Always use the container's dimensions
-            const width = rect.width;
-            const height = rect.height;
-            
-            // Set canvas size accounting for DPI
-            this.canvas.width = width * dpi;
-            this.canvas.height = height * dpi;
-            
-            // Set display size
-            this.canvas.style.width = `${width}px`;
-            this.canvas.style.height = `${height}px`;
-            
-            // Reset transform and scale for DPI
-            this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-            this.ctx.scale(dpi, dpi);
-            
-            // Force immediate redraw
-            this.drawStaff();
-            this.drawTrebleClef();
-        };
+        const rect = container.getBoundingClientRect();
         
-        // Call resize immediately
-        resize();
+        // Set physical dimensions
+        this.canvas.width = rect.width;
+        this.canvas.height = rect.height;
         
-        // Set up resize listeners
-        window.addEventListener('resize', resize);
-        window.addEventListener('fullscreenchange', resize);
+        // Set display size
+        this.canvas.style.width = `${rect.width}px`;
+        this.canvas.style.height = `${rect.height}px`;
         
-        // Additional calls to ensure proper rendering
-        requestAnimationFrame(resize);
+        // Force redraw
+        this.redraw();
     }
 
     setupEventListeners() {
-        // Menu buttons
-        this.startButton.addEventListener('click', () => this.startPractice());
-        this.settingsButton.addEventListener('click', () => this.showSettings());
-        
+        // Remove old start button binding and use direct assignment
+        this.startButton.onclick = () => this.startPractice();
+        this.settingsButton.onclick = () => this.showSettings();
+
         // Settings
         document.getElementById('saveSettings').addEventListener('click', () => this.saveSettings());
         document.getElementById('cancelSettings').addEventListener('click', () => this.hideSettings());
@@ -109,6 +101,8 @@ class TrebleClefTrainer {
         document.getElementById('micTestBtn').addEventListener('click', () => this.testMicrophone());
         document.getElementById('statsBtn').addEventListener('click', () => this.showStatistics());
         document.getElementById('menuBtn').addEventListener('click', () => this.returnToMenu());
+        document.getElementById('toggleFullscreen').addEventListener('click', () => this.toggleFullscreen());
+        document.getElementById('reinitCanvasBtn').addEventListener('click', () => this.reinitializeCanvas());
         
         // Modal close
         document.querySelector('.close').addEventListener('click', () => this.hideStats());
@@ -148,28 +142,49 @@ class TrebleClefTrainer {
     }
 
     startPractice() {
-        this.practiceMode = this.practiceModeSelect.value;
-        this.adaptiveDifficulty = this.adaptiveCheckbox.checked;
+        console.log('Force starting practice...');
         
+        // Force switch to main app view
+        this.mainMenu.style.display = 'none';
+        this.mainApp.style.display = 'flex';
+        this.settingsMenu.style.display = 'none';
+        
+        // Remove all hidden classes
+        this.mainMenu.classList.add('hidden');
+        this.mainApp.classList.remove('hidden');
+        this.settingsMenu.classList.add('hidden');
+        
+        // Force initialize with defaults
+        this.practiceMode = 'treble-all';
+        this.currentNote = null;
+        this.correctCount = 0;
+        this.isStarted = true;
+        
+        // Initialize game systems
         this.initializeNoteRange();
         this.setupAudioDetection();
         
-        this.mainMenu.classList.add('hidden');
-        this.mainApp.classList.remove('hidden');
-        
+        // Force a note and redraw
         this.nextNote();
+        this.reinitializeCanvas();
+        
         this.statusLabel.textContent = '🎹 Play the note shown above';
+        console.log('Practice force started');
     }
 
     initializeNoteRange() {
         const notesByMode = {
             'all': ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F5', 'G5', 'A5'],
-            'staff': ['E4', 'G4', 'B4', 'D5', 'F5'], // Staff lines
-            'spaces': ['F4', 'A4', 'C5', 'E5'], // Spaces
-            'ledger': ['C4', 'D4', 'A5'] // Ledger lines
+            'staff': ['E4', 'G4', 'B4', 'D5', 'F5'],
+            'spaces': ['F4', 'A4', 'C5', 'E5'],
+            'ledger': ['C4', 'D4', 'A5'],
+            'bass-all': ['G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4'],
+            'bass-staff': ['G2', 'B2', 'D3', 'F3', 'A3'],
+            'bass-spaces': ['A2', 'C3', 'E3', 'G3']
         };
         
         this.noteRange = notesByMode[this.practiceMode] || notesByMode['all'];
+        this.isBassClef = this.practiceMode.startsWith('bass-');
         
         // Initialize adaptive difficulty tracking
         this.noteRange.forEach(note => {
@@ -213,13 +228,15 @@ class TrebleClefTrainer {
             
             this.adaptiveManager.recordAttempt(this.currentNote, true);
             this.showCorrectAnimation();
+            
+            // Play sound immediately on correct note
             this.playCurrentNote();
             
             setTimeout(() => {
                 this.nextNote();
                 this.statusLabel.textContent = '🎹 Play the note shown above';
                 this.statusLabel.style.color = '#9696ff';
-            }, 2000);
+            }, 1000); // Reduced delay
         } else {
             this.adaptiveManager.recordAttempt(this.currentNote, false);
             this.wrongAnswers.set(this.currentNote, (this.wrongAnswers.get(this.currentNote) || 0) + 1);
@@ -335,15 +352,118 @@ class TrebleClefTrainer {
     hideSettings() {
         this.settingsMenu.classList.add('hidden');
         this.mainMenu.classList.remove('hidden');
+    }
+
+    saveSettings() {
+        const settings = {
+            volume: document.getElementById('volumeSlider').value,
+            largeNotes: document.getElementById('largeNotes').checked,
+            fullscreen: document.getElementById('fullscreenMode').checked
+        };
+        localStorage.setItem('trebleClefSettings', JSON.stringify(settings));
+        this.hideSettings();
+    }
+
+    loadSettings() {
+        const saved = localStorage.getItem('trebleClefSettings');
+        if (saved) {
+            try {
+                const settings = JSON.parse(saved);
+                document.getElementById('volumeSlider').value = settings.volume || 70;
+                document.getElementById('volumeValue').textContent = `${settings.volume || 70}%`;
+                document.getElementById('largeNotes').checked = settings.largeNotes || false;
+                document.getElementById('fullscreenMode').checked = settings.fullscreen !== false;
+            } catch (e) {
+                console.warn('Failed to load settings:', e);
+            }
+        }
+    }
+
+    returnToMenu() {
+        // Reset state
+        this.currentNote = null;
+        this.correctCount = 0;
+        this.isStarted = false;
+        
+        // Update UI
+        this.scoreLabel.textContent = '🏆 Score: 0';
+        this.statusLabel.textContent = 'Initializing...';
+        this.statusLabel.style.color = '#b4b4be';
+        this.hintDisplay.classList.add('hidden');
+        
+        // Stop audio detection
         this.audioDetector.stopListening();
+        
+        // Switch views
+        this.mainApp.classList.add('hidden');
+        this.mainMenu.classList.remove('hidden');
+        this.settingsMenu.classList.add('hidden');
+        
+        // Force redraw of menu state
+        this.redraw();
     }
 
     toggleFullscreen() {
         if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
+            document.documentElement.requestFullscreen().then(() => {
+                setTimeout(() => this.setupCanvas(), 100);
+            });
         } else {
-            document.exitFullscreen();
+            document.exitFullscreen().then(() => {
+                setTimeout(() => this.setupCanvas(), 100);
+            });
         }
+    }
+
+    reinitializeCanvas() {
+        // Clear any existing context
+        this.ctx = null;
+        
+        // Get fresh context
+        this.canvas = document.getElementById('staffCanvas');
+        this.ctx = this.canvas.getContext('2d', {
+            alpha: false,
+            desynchronized: true
+        });
+        
+        // Resize without recursion
+        this.setCanvasSize();
+        
+        // Mark as initialized
+        this.canvasInitialized = true;
+        
+        console.log('Canvas reinitialized');
+    }
+
+    setupCanvas() {
+        // Initialize on startup
+        if (!this.canvasInitialized) {
+            this.reinitializeCanvas();
+        }
+
+        // Handle screen changes
+        window.addEventListener('resize', () => this.setCanvasSize());
+        document.addEventListener('fullscreenchange', () => {
+            setTimeout(() => this.setCanvasSize(), 100);
+        });
+    }
+
+    addIPadFullscreenButton() {
+        const button = document.createElement('button');
+        button.className = 'control-button';
+        button.textContent = '📱 Fullscreen';
+        button.style.position = 'fixed';
+        button.style.bottom = '20px';
+        button.style.right = '20px';
+        button.style.zIndex = '1000';
+        
+        button.addEventListener('click', () => {
+            if (document.documentElement.webkitRequestFullscreen) {
+                document.documentElement.webkitRequestFullscreen();
+            }
+        });
+        
+        document.body.appendChild(button);
     }
 
     startAnimationLoop() {
@@ -385,17 +505,17 @@ class TrebleClefTrainer {
 
     drawStaff() {
         const staffLines = 5;
-        const staffSpacing = Math.min(40, this.canvas.height / 15);
-        const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+        const staffSpacing = 80; // Reduced from 100 to give more vertical room
+        const centerY = this.canvas.height / 2;
         const startY = centerY - (staffSpacing * 2);
-        const startX = 50; // Fixed position instead of percentage
-        const staffWidth = this.canvas.width / window.devicePixelRatio - 100; // Fixed margins
+        const startX = 150; // Large margin
+        const staffWidth = this.canvas.width - 300;
 
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 2;
+        this.ctx.lineWidth = 4;
 
         for (let i = 0; i < staffLines; i++) {
-            const y = startY + i * staffSpacing;
+            const y = Math.round(startY + i * staffSpacing);
             this.ctx.beginPath();
             this.ctx.moveTo(startX, y);
             this.ctx.lineTo(startX + staffWidth, y);
@@ -404,35 +524,49 @@ class TrebleClefTrainer {
     }
 
     drawTrebleClef() {
-        const startX = (this.canvas.width * 0.15) / window.devicePixelRatio;
-        const centerY = this.canvas.height / (2 * window.devicePixelRatio);
-        const clefSize = Math.min(120, this.canvas.height / 4);
+        if (!this.ctx) return;
         
-        this.ctx.fillStyle = '#00bfff';
-        this.ctx.font = `bold ${clefSize}px serif`;
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.shadowColor = 'rgba(0, 191, 255, 0.5)';
-        this.ctx.shadowBlur = 15;
-        this.ctx.fillText('𝄞', startX, centerY);
-        this.ctx.shadowBlur = 0;
+        this.ctx.save();
+        const startX = Math.round(this.canvas.width * 0.15);
+        const centerY = Math.round(this.canvas.height / 2);
+        const clefSize = 320; // Increased from 200
+        
+        if (this.isBassClef && this.bassClefImage.complete) {
+            this.ctx.drawImage(
+                this.bassClefImage,
+                startX - clefSize/2,
+                centerY - clefSize/2,
+                clefSize,
+                clefSize
+            );
+        } else {
+            this.ctx.fillStyle = '#000000';  // Black color
+            this.ctx.font = `bold ${clefSize}px serif`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('𝄞', startX, centerY);
+        }
+        
+        this.ctx.restore();
     }
 
     drawNote(noteName) {
-        const noteX = this.canvas.width * 0.65 + this.noteShakeOffset;
-        const noteY = this.getNoteYPosition(noteName);
-        const noteSize = Math.min(35, this.canvas.width / 35);
+        const noteX = Math.round(this.canvas.width * 0.65);
+        const verticalOffset = -0; // Increased upward shift to prevent cropping
+        const noteY = Math.round(this.getNoteYPosition(noteName)) + verticalOffset;
+        const noteSize = 45;  // Base note size
+        const stemLength = 180;
         
         if (this.isCorrectAnimation && this.noteGlow > 0) {
             this.ctx.fillStyle = `rgba(0, 255, 136, ${this.noteGlow * 0.7})`;
             for (let i = 10; i >= 1; i--) {
                 this.ctx.beginPath();
-                this.ctx.ellipse(noteX, noteY, noteSize + i*5, (noteSize + i*5) * 0.6, 0, 0, 2 * Math.PI);
+                this.ctx.ellipse(noteX, noteY, noteSize + i*2, (noteSize + i*2) * 0.4, 0, 0, 2 * Math.PI);
                 this.ctx.fill();
             }
         }
         
-        let noteColor = '#ff4081';
+        let noteColor = '#000000';
         if (this.isCorrectAnimation) {
             noteColor = '#00ff88';
         } else if (this.isWrongAnimation) {
@@ -440,23 +574,25 @@ class TrebleClefTrainer {
             noteColor = `rgb(${pulse}, 40, 40)`;
         }
         
+        // Draw single note head - adjust 0.7 to change oval height
         this.ctx.fillStyle = noteColor;
         this.ctx.beginPath();
-        this.ctx.ellipse(noteX, noteY, noteSize, noteSize * 0.6, 0, 0, 2 * Math.PI);
+        this.ctx.ellipse(noteX, noteY, noteSize, noteSize * 0.7, 0, 0, 2 * Math.PI);
         this.ctx.fill();
         
+        // Draw stem
         this.ctx.strokeStyle = noteColor;
-        this.ctx.lineWidth = 6;
+        this.ctx.lineWidth = 4;
         this.ctx.beginPath();
         
-        const stemLength = Math.min(150, this.canvas.height / 4);
+        // Draw stem based on note position
         const centerY = this.canvas.height / 2;
         if (noteY > centerY) {
-            this.ctx.moveTo(noteX + noteSize, noteY);
-            this.ctx.lineTo(noteX + noteSize, noteY - stemLength);
+            this.ctx.moveTo(noteX + noteSize * 0.9, noteY);
+            this.ctx.lineTo(noteX + noteSize * 0.9, noteY - stemLength);
         } else {
-            this.ctx.moveTo(noteX - noteSize, noteY);
-            this.ctx.lineTo(noteX - noteSize, noteY + stemLength);
+            this.ctx.moveTo(noteX - noteSize * 0.9, noteY);
+            this.ctx.lineTo(noteX - noteSize * 0.9, noteY + stemLength);
         }
         this.ctx.stroke();
         
@@ -464,11 +600,11 @@ class TrebleClefTrainer {
     }
 
     getNoteYPosition(noteName) {
-        const staffSpacing = Math.min(60, this.canvas.height / 10);
+        const staffSpacing = 80; // Match new staff spacing
         const centerY = this.canvas.height / 2;
         const bottomLine = centerY + (staffSpacing * 2);
         
-        const positions = {
+        const treblePositions = {
             'C4': bottomLine + staffSpacing * 1.5,
             'D4': bottomLine + staffSpacing,
             'E4': bottomLine,
@@ -484,18 +620,34 @@ class TrebleClefTrainer {
             'A5': bottomLine - staffSpacing * 5
         };
         
-        return positions[noteName] || bottomLine;
+        const bassPositions = {
+            'G2': bottomLine + staffSpacing * 1.5,
+            'A2': bottomLine + staffSpacing,
+            'B2': bottomLine + staffSpacing * 0.5,
+            'C3': bottomLine,
+            'D3': bottomLine - staffSpacing * 0.5,
+            'E3': bottomLine - staffSpacing,
+            'F3': bottomLine - staffSpacing * 1.5,
+            'G3': bottomLine - staffSpacing * 2,
+            'A3': bottomLine - staffSpacing * 2.5,
+            'B3': bottomLine - staffSpacing * 3,
+            'C4': bottomLine - staffSpacing * 3.5,
+            'D4': bottomLine - staffSpacing * 4,
+            'E4': bottomLine - staffSpacing * 4.5
+        };
+        
+        return (this.isBassClef ? bassPositions : treblePositions)[noteName] || bottomLine;
     }
 
     drawLedgerLines(noteX, noteY, noteSize) {
-        const staffSpacing = Math.min(60, this.canvas.height / 10);
-        const centerY = this.canvas.height / 2;
-        const staffTop = centerY - (staffSpacing * 2);
-        const staffBottom = centerY + (staffSpacing * 2);
-        const lineLength = noteSize * 3.5;
+        const staffSpacing = 80; // Match staff spacing
+        const centerY = Math.round(this.canvas.height / 2);
+        const staffTop = Math.round(centerY - (staffSpacing * 2));
+        const staffBottom = Math.round(centerY + (staffSpacing * 2));
+        const lineLength = Math.round(noteSize * 2.5); // Adjusted for new note size
         
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 5;
+        this.ctx.lineWidth = 3; // Match staff line width
         
         if (noteY > staffBottom) {
             let ledgerY = staffBottom + staffSpacing;
