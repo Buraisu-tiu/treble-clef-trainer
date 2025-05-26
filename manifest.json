@@ -1,0 +1,12 @@
+{
+  "name": "Treble Clef Trainer",
+  "short_name": "TrebleClef",
+  "description": "Learn to read treble clef notes with adaptive difficulty",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#191922",
+  "theme_color": "#191922",
+  "orientation": "landscape-primary",
+  "categories": ["education", "music"],
+  "lang": "en"
+}
