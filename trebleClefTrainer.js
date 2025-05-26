@@ -47,19 +47,49 @@ class TrebleClefTrainer {
         this.hintDisplay = document.getElementById('hintDisplay');
         
         this.setupCanvas();
+        
+        // Force immediate initial draw
+        this.drawStaff();
+        this.drawTrebleClef();
     }
 
     setupCanvas() {
         const container = this.canvas.parentElement;
         const resize = () => {
+            // Get container size
             const rect = container.getBoundingClientRect();
-            this.canvas.width = Math.min(rect.width - 40, 1200);
-            this.canvas.height = Math.min(rect.height - 40, 600);
-            this.redraw();
+            const dpi = window.devicePixelRatio || 1;
+            
+            // Always use the container's dimensions
+            const width = rect.width;
+            const height = rect.height;
+            
+            // Set canvas size accounting for DPI
+            this.canvas.width = width * dpi;
+            this.canvas.height = height * dpi;
+            
+            // Set display size
+            this.canvas.style.width = `${width}px`;
+            this.canvas.style.height = `${height}px`;
+            
+            // Reset transform and scale for DPI
+            this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            this.ctx.scale(dpi, dpi);
+            
+            // Force immediate redraw
+            this.drawStaff();
+            this.drawTrebleClef();
         };
         
-        window.addEventListener('resize', resize);
+        // Call resize immediately
         resize();
+        
+        // Set up resize listeners
+        window.addEventListener('resize', resize);
+        window.addEventListener('fullscreenchange', resize);
+        
+        // Additional calls to ensure proper rendering
+        requestAnimationFrame(resize);
     }
 
     setupEventListeners() {
@@ -183,6 +213,7 @@ class TrebleClefTrainer {
             
             this.adaptiveManager.recordAttempt(this.currentNote, true);
             this.showCorrectAnimation();
+            this.playCurrentNote();
             
             setTimeout(() => {
                 this.nextNote();
@@ -304,33 +335,6 @@ class TrebleClefTrainer {
     hideSettings() {
         this.settingsMenu.classList.add('hidden');
         this.mainMenu.classList.remove('hidden');
-    }
-
-    saveSettings() {
-        // Save settings to localStorage
-        const settings = {
-            volume: document.getElementById('volumeSlider').value,
-            largeNotes: document.getElementById('largeNotes').checked,
-            fullscreen: document.getElementById('fullscreenMode').checked
-        };
-        localStorage.setItem('trebleClefSettings', JSON.stringify(settings));
-        this.hideSettings();
-    }
-
-    loadSettings() {
-        const saved = localStorage.getItem('trebleClefSettings');
-        if (saved) {
-            const settings = JSON.parse(saved);
-            document.getElementById('volumeSlider').value = settings.volume || 70;
-            document.getElementById('volumeValue').textContent = (settings.volume || 70) + '%';
-            document.getElementById('largeNotes').checked = settings.largeNotes || false;
-            document.getElementById('fullscreenMode').checked = settings.fullscreen !== false;
-        }
-    }
-
-    returnToMenu() {
-        this.mainApp.classList.add('hidden');
-        this.mainMenu.classList.remove('hidden');
         this.audioDetector.stopListening();
     }
 
@@ -362,23 +366,18 @@ class TrebleClefTrainer {
     redraw() {
         if (!this.ctx) return;
         
-        // Clear canvas with background color + flash effect
-        let bgColor = '#282830';
-        if (this.backgroundFlash > 0) {
-            if (this.isCorrectAnimation) {
-                const green = Math.floor(this.backgroundFlash * 100);
-                bgColor = `rgb(${40 + green/3}, ${40 + green}, ${40 + green/3})`;
-            } else if (this.isWrongAnimation) {
-                const red = Math.floor(this.backgroundFlash * 100);
-                bgColor = `rgb(${40 + red}, ${40 + red/3}, ${40 + red/3})`;
-            }
-        }
+        // Clear entire canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         
-        this.ctx.fillStyle = bgColor;
+        // Draw background
+        this.ctx.fillStyle = '#282830';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
+        // Ensure staff is drawn even if no note is present
         this.drawStaff();
         this.drawTrebleClef();
+        
+        // Draw current note if exists
         if (this.currentNote) {
             this.drawNote(this.currentNote);
         }
@@ -386,13 +385,14 @@ class TrebleClefTrainer {
 
     drawStaff() {
         const staffLines = 5;
-        const staffSpacing = 30;
-        const startY = this.canvas.height / 2 - 60;
-        const startX = 150;
-        const staffWidth = this.canvas.width - 300;
+        const staffSpacing = Math.min(40, this.canvas.height / 15);
+        const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+        const startY = centerY - (staffSpacing * 2);
+        const startX = 50; // Fixed position instead of percentage
+        const staffWidth = this.canvas.width / window.devicePixelRatio - 100; // Fixed margins
 
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 3;
+        this.ctx.lineWidth = 2;
 
         for (let i = 0; i < staffLines; i++) {
             const y = startY + i * staffSpacing;
@@ -404,113 +404,116 @@ class TrebleClefTrainer {
     }
 
     drawTrebleClef() {
-        const startX = 180;
-        const startY = this.canvas.height / 2 - 40;
+        const startX = (this.canvas.width * 0.15) / window.devicePixelRatio;
+        const centerY = this.canvas.height / (2 * window.devicePixelRatio);
+        const clefSize = Math.min(120, this.canvas.height / 4);
         
-        this.ctx.fillStyle = '#c8c8ff';
-        this.ctx.font = 'bold 100px Arial';
-        this.ctx.fillText('♪', startX, startY);
+        this.ctx.fillStyle = '#00bfff';
+        this.ctx.font = `bold ${clefSize}px serif`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.shadowColor = 'rgba(0, 191, 255, 0.5)';
+        this.ctx.shadowBlur = 15;
+        this.ctx.fillText('𝄞', startX, centerY);
+        this.ctx.shadowBlur = 0;
     }
 
     drawNote(noteName) {
-        const noteX = this.canvas.width / 2 + this.noteShakeOffset;
+        const noteX = this.canvas.width * 0.65 + this.noteShakeOffset;
         const noteY = this.getNoteYPosition(noteName);
+        const noteSize = Math.min(35, this.canvas.width / 35);
         
-        // Glow effect for correct animation
         if (this.isCorrectAnimation && this.noteGlow > 0) {
-            this.ctx.fillStyle = `rgba(100, 255, 100, ${this.noteGlow * 0.5})`;
-            for (let i = 5; i >= 1; i--) {
+            this.ctx.fillStyle = `rgba(0, 255, 136, ${this.noteGlow * 0.7})`;
+            for (let i = 10; i >= 1; i--) {
                 this.ctx.beginPath();
-                this.ctx.ellipse(noteX, noteY, 15 + i*2, 9 + i*2, 0, 0, 2 * Math.PI);
+                this.ctx.ellipse(noteX, noteY, noteSize + i*5, (noteSize + i*5) * 0.6, 0, 0, 2 * Math.PI);
                 this.ctx.fill();
             }
         }
         
-        // Note color
-        let noteColor = '#ff6464';
+        let noteColor = '#ff4081';
         if (this.isCorrectAnimation) {
-            noteColor = '#64ff64';
+            noteColor = '#00ff88';
         } else if (this.isWrongAnimation) {
-            const pulse = Math.sin(Date.now() * 0.02) * 50 + 205;
-            noteColor = `rgb(${pulse}, 50, 50)`;
+            const pulse = Math.sin(Date.now() * 0.02) * 80 + 175;
+            noteColor = `rgb(${pulse}, 40, 40)`;
         }
         
-        // Note head
         this.ctx.fillStyle = noteColor;
         this.ctx.beginPath();
-        this.ctx.ellipse(noteX, noteY, 15, 9, 0, 0, 2 * Math.PI);
+        this.ctx.ellipse(noteX, noteY, noteSize, noteSize * 0.6, 0, 0, 2 * Math.PI);
         this.ctx.fill();
         
-        // Note stem
         this.ctx.strokeStyle = noteColor;
-        this.ctx.lineWidth = 4;
+        this.ctx.lineWidth = 6;
         this.ctx.beginPath();
         
-        const staffCenter = this.canvas.height / 2;
-        if (noteY > staffCenter) {
-            // Stem up
-            this.ctx.moveTo(noteX + 15, noteY);
-            this.ctx.lineTo(noteX + 15, noteY - 90);
+        const stemLength = Math.min(150, this.canvas.height / 4);
+        const centerY = this.canvas.height / 2;
+        if (noteY > centerY) {
+            this.ctx.moveTo(noteX + noteSize, noteY);
+            this.ctx.lineTo(noteX + noteSize, noteY - stemLength);
         } else {
-            // Stem down
-            this.ctx.moveTo(noteX - 15, noteY);
-            this.ctx.lineTo(noteX - 15, noteY + 90);
+            this.ctx.moveTo(noteX - noteSize, noteY);
+            this.ctx.lineTo(noteX - noteSize, noteY + stemLength);
         }
         this.ctx.stroke();
         
-        this.drawLedgerLines(noteX, noteY);
+        this.drawLedgerLines(noteX, noteY, noteSize);
     }
 
     getNoteYPosition(noteName) {
-        const staffSpacing = 30;
-        const baseY = this.canvas.height / 2 + 60; // Bottom line of staff
+        const staffSpacing = Math.min(60, this.canvas.height / 10);
+        const centerY = this.canvas.height / 2;
+        const bottomLine = centerY + (staffSpacing * 2);
         
         const positions = {
-            'C4': baseY + 45,   // Below staff
-            'D4': baseY + 30,   // Below staff
-            'E4': baseY,        // Bottom line
-            'F4': baseY - 15,   // First space
-            'G4': baseY - 30,   // Second line
-            'A4': baseY - 45,   // Second space
-            'B4': baseY - 60,   // Third line
-            'C5': baseY - 75,   // Third space
-            'D5': baseY - 90,   // Fourth line
-            'E5': baseY - 105,  // Fourth space
-            'F5': baseY - 120,  // Top line
-            'G5': baseY - 135,  // Above staff
-            'A5': baseY - 150   // Above staff
+            'C4': bottomLine + staffSpacing * 1.5,
+            'D4': bottomLine + staffSpacing,
+            'E4': bottomLine,
+            'F4': bottomLine - staffSpacing * 0.5,
+            'G4': bottomLine - staffSpacing,
+            'A4': bottomLine - staffSpacing * 1.5,
+            'B4': bottomLine - staffSpacing * 2,
+            'C5': bottomLine - staffSpacing * 2.5,
+            'D5': bottomLine - staffSpacing * 3,
+            'E5': bottomLine - staffSpacing * 3.5,
+            'F5': bottomLine - staffSpacing * 4,
+            'G5': bottomLine - staffSpacing * 4.5,
+            'A5': bottomLine - staffSpacing * 5
         };
         
-        return positions[noteName] || baseY;
+        return positions[noteName] || bottomLine;
     }
 
-    drawLedgerLines(noteX, noteY) {
-        const staffTop = this.canvas.height / 2 - 60;
-        const staffBottom = this.canvas.height / 2 + 60;
-        const staffSpacing = 30;
+    drawLedgerLines(noteX, noteY, noteSize) {
+        const staffSpacing = Math.min(60, this.canvas.height / 10);
+        const centerY = this.canvas.height / 2;
+        const staffTop = centerY - (staffSpacing * 2);
+        const staffBottom = centerY + (staffSpacing * 2);
+        const lineLength = noteSize * 3.5;
         
         this.ctx.strokeStyle = '#ffffff';
-        this.ctx.lineWidth = 3;
+        this.ctx.lineWidth = 5;
         
-        // Ledger lines below staff
         if (noteY > staffBottom) {
             let ledgerY = staffBottom + staffSpacing;
-            while (ledgerY <= noteY) {
+            while (ledgerY <= noteY + 20) {
                 this.ctx.beginPath();
-                this.ctx.moveTo(noteX - 25, ledgerY);
-                this.ctx.lineTo(noteX + 25, ledgerY);
+                this.ctx.moveTo(noteX - lineLength, ledgerY);
+                this.ctx.lineTo(noteX + lineLength, ledgerY);
                 this.ctx.stroke();
                 ledgerY += staffSpacing;
             }
         }
         
-        // Ledger lines above staff
         if (noteY < staffTop) {
             let ledgerY = staffTop - staffSpacing;
-            while (ledgerY >= noteY) {
+            while (ledgerY >= noteY - 20) {
                 this.ctx.beginPath();
-                this.ctx.moveTo(noteX - 25, ledgerY);
-                this.ctx.lineTo(noteX + 25, ledgerY);
+                this.ctx.moveTo(noteX - lineLength, ledgerY);
+                this.ctx.lineTo(noteX + lineLength, ledgerY);
                 this.ctx.stroke();
                 ledgerY -= staffSpacing;
             }
